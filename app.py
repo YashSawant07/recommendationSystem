@@ -9,7 +9,8 @@ app = Flask(__name__)
 
 # Load and preprocess data
 def load_data():
-    df = pd.read_csv("data/dataset.csv")
+    # Load your dataset - make sure the path is correct
+    df = pd.read_csv("Dataset.csv")
 
     # Data cleaning
     df.dropna(inplace=True)
@@ -30,27 +31,34 @@ def load_data():
         'Turkish Lira(TL)': 2.80
     }
 
+    # Clean and convert cost column
     df['Average Cost for two'] = df['Average Cost for two'].astype(str).str.replace(',', '')
     df['Average Cost for two'] = pd.to_numeric(df['Average Cost for two'], errors='coerce')
 
+    # Apply currency conversion
     df['Conversion_Rate'] = df['Currency'].map(conversion_rates)
     df['Cost_INR'] = df['Average Cost for two'] * df['Conversion_Rate']
 
+    # Remove any rows with missing values
     df.dropna(inplace=True)
 
     # Calculate cost per person
-    df['Cost_single_person'] = df['Cost_INR']/2
+    df['Cost_single_person'] = df['Cost_INR'] / 2
 
-    # Select necessary columns
-    neccessary_col = ['Restaurant Name', 'City', 'Cuisines', 'Has Table booking', 
-                      'Has Online delivery', 'Aggregate rating', 'Rating text', 
-                      'Cost_single_person', 'Address']
+    # Select necessary columns - make sure 'Address' exists in your dataset
+    necessary_cols = ['Restaurant Name', 'City', 'Cuisines', 'Has Table booking', 
+                     'Has Online delivery', 'Aggregate rating', 'Rating text', 
+                     'Cost_single_person', 'Address']
 
-    df = df[neccessary_col]
+    # Filter only columns that exist in the dataframe
+    necessary_cols = [col for col in necessary_cols if col in df.columns]
+    df = df[necessary_cols]
 
     # Convert yes/no to binary
-    df['Has Table booking'] = df['Has Table booking'].map({'Yes': 1, 'No': 0})
-    df['Has Online delivery'] = df['Has Online delivery'].map({'Yes': 1, 'No': 0})
+    if 'Has Table booking' in df.columns:
+        df['Has Table booking'] = df['Has Table booking'].map({'Yes': 1, 'No': 0})
+    if 'Has Online delivery' in df.columns:
+        df['Has Online delivery'] = df['Has Online delivery'].map({'Yes': 1, 'No': 0})
 
     # Normalize features
     scaler = MinMaxScaler()
@@ -70,7 +78,7 @@ df = load_data()
 top_cities = df['City'].value_counts().head(80).index.tolist()
 all_cuisines = df['Cuisines'].str.split(', ').explode()
 top_cuisines = all_cuisines.value_counts().head(50).index.tolist()
-rating_options = ['Excellent', 'Very Good', 'Good', 'Average', 'Not rated', 'Poor']
+rating_options = sorted(df['Rating text'].unique().tolist())
 
 # Prepare TF-IDF
 tfidf = TfidfVectorizer(stop_words='english')
@@ -78,34 +86,21 @@ tfidf_matrix = tfidf.fit_transform(df['features'])
 cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
 
 def get_recommendations(user_preferences, cosine_sim=cosine_sim, df=df, top_n=5):
-    dummy_restaurant = pd.DataFrame([{
-        'Restaurant Name': 'User Preferences',
-        'Cuisines': user_preferences.get('cuisines', ''),
-        'Rating text': user_preferences.get('rating', 'good'),
-        'City': user_preferences.get('city', ''),
-        'Cost_single_person': user_preferences.get('max_price', df['Cost_single_person'].max()),
-        'features': ' '.join([
-            user_preferences.get('cuisines', ''),
-            user_preferences.get('rating', 'good'),
-            user_preferences.get('city', '')
-        ]).lower().replace('[^\w\s]', '')
-    }])
+    # Create a dummy restaurant based on user preferences
+    dummy_features = ' '.join([
+        user_preferences.get('cuisines', ''),
+        user_preferences.get('rating', 'good'),
+        user_preferences.get('city', '')
+    ]).lower().replace('[^\w\s]', '')
 
-    # Add to original dataframe temporarily
-    temp_df = pd.concat([df, dummy_restaurant], ignore_index=True)
+    # Transform the dummy features using the existing TF-IDF vectorizer
+    dummy_tfidf = tfidf.transform([dummy_features])
 
-    # Recreate TF-IDF matrix with the dummy entry
-    temp_tfidf = tfidf.transform(temp_df['features'])
-    temp_cosine_sim = linear_kernel(temp_tfidf, temp_tfidf)
+    # Calculate cosine similarity between dummy and all restaurants
+    sim_scores = linear_kernel(dummy_tfidf, tfidf_matrix).flatten()
 
-    # Get similarity scores for the dummy entry (last one)
-    sim_scores = list(enumerate(temp_cosine_sim[-1]))
-
-    # Sort restaurants by similarity score
-    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-
-    # Get the top_n most similar restaurants (excluding the dummy entry itself)
-    restaurant_indices = [i[0] for i in sim_scores[1:top_n+1]]
+    # Get the indices of top_n most similar restaurants
+    restaurant_indices = sim_scores.argsort()[-top_n-1:-1][::-1]
 
     # Filter by price if specified
     max_price = user_preferences.get('max_price', float('inf'))
@@ -113,10 +108,9 @@ def get_recommendations(user_preferences, cosine_sim=cosine_sim, df=df, top_n=5)
     recommendations = recommendations[recommendations['Cost_single_person'] <= max_price]
 
     # Add similarity score to results
-    similarity_scores = [i[1] for i in sim_scores[1:len(recommendations)+1]]
-    recommendations['similarity_score'] = similarity_scores
+    recommendations['similarity_score'] = sim_scores[restaurant_indices]
 
-    return recommendations.sort_values('similarity_score', ascending=False).head(top_n)
+    return recommendations.head(top_n)
 
 @app.route('/', methods=['GET', 'POST'])
 def index():

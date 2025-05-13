@@ -15,23 +15,20 @@
             <p><strong>Max Price:</strong> ${{ "%.2f"|format(preferences.max_price) }}</p>
         </div>
 
-        <div class="results">
-            {% if results %}
+        {% if message %}
+            <p class="no-results">{{ message }}</p>
+        {% elif results %}
+            <div class="results">
                 {% for restaurant in results %}
                     <div class="restaurant-card">
                         <h3>{{ restaurant['Restaurant Name'] }}</h3>
                         <p><strong>Cuisines:</strong> {{ restaurant['Cuisines'] }}</p>
                         <p><strong>Price per person:</strong> ${{ "%.2f"|format(restaurant['Cost_single_person']) }}</p>
-                        <p><strong>Rating:</strong> {{ restaurant['Aggregate rating'] }}/5</p>
+                        <p><strong>Rating:</strong> {{ restaurant['Aggregate rating'] }}/5 ({{ (restaurant['similarity_score']*100)|round(1) }}% match)</p>
                         <p><strong>Address:</strong> {{ restaurant['Address'] }}, {{ restaurant['City'] }}</p>
                     </div>
                 {% endfor %}
-            {% else %}
-                <p class="no-results">No restaurants match your criteria. Please try different preferences.</p>
-            {% endif %}
-        </div>
+            </div>
+        {% endif %}
 
-        <a href="{{ url_for('index') }}" class="back-button">Try Again</a>
-    </div>
-</body>
-</html>
+        <a href="{{ url_for('index') }}" class="back-button">Try

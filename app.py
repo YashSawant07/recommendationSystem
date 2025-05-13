@@ -1,160 +1,154 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request
 import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import linear_kernel
-import os
 
 app = Flask(__name__)
 
 # Load and preprocess data
 def load_data():
-    try:
-        filepath = os.path.join('data', 'dataset.csv')
-        df = pd.read_csv(filepath)
+    df = pd.read_csv("Dataset.csv")
 
-        # Data cleaning and preprocessing
-        df['Cuisines'] = df['Cuisines'].fillna('Unknown').str.strip()
-        df['Rating text'] = df['Rating text'].fillna('Average').str.strip().str.lower()
-        df['City'] = df['City'].fillna('Unknown').str.strip()
+    # Data cleaning
+    df.dropna(inplace=True)
 
-        # Handle numeric columns
-        df['Average Cost for two'] = pd.to_numeric(df['Average Cost for two'], errors='coerce')
-        df['Average Cost for two'] = df['Average Cost for two'].fillna(df['Average Cost for two'].median())
-        df['Price range'] = pd.to_numeric(df['Price range'], errors='coerce')
-        df['Price range'] = df['Price range'].fillna(df['Price range'].median())
+    # Currency conversion
+    conversion_rates = {
+        'Botswana Pula(P)': 6.15,
+        'Brazilian Real(R$)': 16.50,
+        'Dollar($)': 83.50,
+        'Emirati Diram(AED)': 22.73,
+        'Indian Rupees(Rs.)': 1,
+        'Indonesian Rupiah(IDR)': 0.0053,
+        'NewZealand($)': 51.50,
+        'Pounds(£)': 105.50,
+        'Qatari Rial(QR)': 22.93,
+        'Rand(R)': 4.50,
+        'Sri Lankan Rupee(LKR)': 0.27,
+        'Turkish Lira(TL)': 2.80
+    }
 
-        # Create derived columns
-        df['Cost_single_person'] = df['Average Cost for two'] / 2
-        df['Has Table booking'] = df['Has Table booking'].map({'Yes': 1, 'No': 0, 'yes': 1, 'no': 0}).fillna(0)
-        df['Has Online delivery'] = df['Has Online delivery'].map({'Yes': 1, 'No': 0, 'yes': 1, 'no': 0}).fillna(0)
+    df['Average Cost for two'] = df['Average Cost for two'].astype(str).str.replace(',', '')
+    df['Average Cost for two'] = pd.to_numeric(df['Average Cost for two'], errors='coerce')
 
-        # Create features for recommendation
-        df['features'] = df['Cuisines'] + ' ' + df['Rating text'] + ' ' + df['City']
-        df['features'] = df['features'].str.replace('[^\w\s]', '').str.lower()
+    df['Conversion_Rate'] = df['Currency'].map(conversion_rates)
+    df['Cost_INR'] = df['Average Cost for two'] * df['Conversion_Rate']
 
-        # Initialize TF-IDF Vectorizer
-        tfidf = TfidfVectorizer(stop_words='english')
-        tfidf_matrix = tfidf.fit_transform(df['features'])
-        cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+    df.dropna(inplace=True)
 
-        return df, tfidf, cosine_sim
+    # Calculate cost per person
+    df['Cost_single_person'] = df['Cost_INR']/2
 
-    except Exception as e:
-        print(f"Error loading data: {str(e)}")
-        raise
+    # Select necessary columns
+    neccessary_col = ['Restaurant Name', 'City', 'Cuisines', 'Has Table booking', 
+                      'Has Online delivery', 'Aggregate rating', 'Rating text', 
+                      'Cost_single_person', 'Address']
 
-# Load data at startup
-try:
-    df, tfidf, cosine_sim = load_data()
-except:
-    print("Failed to load data. Please check your dataset.")
-    exit()
+    df = df[neccessary_col]
 
-# Recommendation function
-def get_recommendations(user_preferences, top_n=5):
-    try:
-        # Get user's city preference
-        user_city = user_preferences.get('city', '').strip()
-        
-        # First filter by city
-        city_df = df[df['City'].str.lower() == user_city.lower()].copy()
-        
-        if city_df.empty:
-            return pd.DataFrame()
+    # Convert yes/no to binary
+    df['Has Table booking'] = df['Has Table booking'].map({'Yes': 1, 'No': 0})
+    df['Has Online delivery'] = df['Has Online delivery'].map({'Yes': 1, 'No': 0})
 
-        # Create dummy restaurant based on user preferences
-        dummy_features = ' '.join([
+    # Normalize features
+    scaler = MinMaxScaler()
+    df['Cost_single_person_norm'] = scaler.fit_transform(df[['Cost_single_person']])
+    df['Aggregate rating_norm'] = scaler.fit_transform(df[['Aggregate rating']])
+
+    # Create features for TF-IDF
+    df['features'] = df['Cuisines'] + ' ' + df['Rating text'] + ' ' + df['City']
+    df['features'] = df['features'].str.replace('[^\w\s]', '').str.lower()
+
+    return df
+
+# Load data and prepare TF-IDF matrix
+df = load_data()
+
+# Get top cities and cuisines
+top_cities = df['City'].value_counts().head(80).index.tolist()
+all_cuisines = df['Cuisines'].str.split(', ').explode()
+top_cuisines = all_cuisines.value_counts().head(50).index.tolist()
+rating_options = ['Excellent', 'Very Good', 'Good', 'Average', 'Not rated', 'Poor']
+
+# Prepare TF-IDF
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(df['features'])
+cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+
+def get_recommendations(user_preferences, cosine_sim=cosine_sim, df=df, top_n=5):
+    dummy_restaurant = pd.DataFrame([{
+        'Restaurant Name': 'User Preferences',
+        'Cuisines': user_preferences.get('cuisines', ''),
+        'Rating text': user_preferences.get('rating', 'good'),
+        'City': user_preferences.get('city', ''),
+        'Cost_single_person': user_preferences.get('max_price', df['Cost_single_person'].max()),
+        'features': ' '.join([
             user_preferences.get('cuisines', ''),
             user_preferences.get('rating', 'good'),
             user_preferences.get('city', '')
         ]).lower().replace('[^\w\s]', '')
+    }])
 
-        # Transform dummy features using existing TF-IDF
-        dummy_tfidf = tfidf.transform([dummy_features])
+    # Add to original dataframe temporarily
+    temp_df = pd.concat([df, dummy_restaurant], ignore_index=True)
 
-        # Calculate similarity with city-filtered restaurants
-        sim_scores = linear_kernel(dummy_tfidf, tfidf.transform(city_df['features']))
-        sim_scores = sim_scores[0]  # Get the first (and only) row
+    # Recreate TF-IDF matrix with the dummy entry
+    temp_tfidf = tfidf.transform(temp_df['features'])
+    temp_cosine_sim = linear_kernel(temp_tfidf, temp_tfidf)
 
-        # Create a Series with similarity scores
-        sim_series = pd.Series(sim_scores, index=city_df.index)
+    # Get similarity scores for the dummy entry (last one)
+    sim_scores = list(enumerate(temp_cosine_sim[-1]))
 
-        # Filter by max price if specified
-        max_price = user_preferences.get('max_price', float('inf'))
-        filtered_df = city_df[city_df['Cost_single_person'] <= max_price].copy()
+    # Sort restaurants by similarity score
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
 
-        # Get similarity scores for filtered restaurants
-        filtered_sim = sim_series[filtered_df.index]
+    # Get the top_n most similar restaurants (excluding the dummy entry itself)
+    restaurant_indices = [i[0] for i in sim_scores[1:top_n+1]]
 
-        # Sort by similarity and get top N
-        recommendations = filtered_df.iloc[filtered_sim.sort_values(ascending=False).index[:top_n]]
-        recommendations['similarity_score'] = filtered_sim[recommendations.index]
+    # Filter by price if specified
+    max_price = user_preferences.get('max_price', float('inf'))
+    recommendations = df.iloc[restaurant_indices]
+    recommendations = recommendations[recommendations['Cost_single_person'] <= max_price]
 
-        return recommendations.sort_values('similarity_score', ascending=False)
+    # Add similarity score to results
+    similarity_scores = [i[1] for i in sim_scores[1:len(recommendations)+1]]
+    recommendations['similarity_score'] = similarity_scores
 
-    except Exception as e:
-        print(f"Error in recommendation: {str(e)}")
-        return pd.DataFrame()
+    return recommendations.sort_values('similarity_score', ascending=False).head(top_n)
 
-# Routes
-@app.route('/cuisines')
-def cuisines():
-    try:
-        # Extract all cuisines and split them
-        all_cuisines = df['Cuisines'].str.split(',').explode()
-        # Clean and get top 50 unique cuisines
-        top_cuisines = all_cuisines.str.strip().value_counts().head(50).index.tolist()
-        return render_template('cuisines.html', cuisines=top_cuisines)
-    except Exception as e:
-        return render_template('error.html', message=f"Failed to load cuisines. Error: {str(e)}")
-
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    try:
-        cities = sorted(df['City'].unique().tolist())
-        ratings = ['excellent', 'very good', 'good', 'average', 'poor', 'very poor']
-        return render_template('index.html', cities=cities, ratings=ratings)
-    except:
-        return render_template('error.html', message="Failed to load page. Please try again later.")
-
-@app.route('/recommend', methods=['POST'])
-def recommend():
-    try:
-        # Validate and get user preferences
-        preferences = {
-            'cuisines': request.form.get('cuisines', '').strip(),
-            'rating': request.form.get('rating', 'good').strip().lower(),
-            'city': request.form.get('city', '').strip(),
+    if request.method == 'POST':
+        # Get user preferences from form
+        user_prefs = {
+            'city': request.form.get('city'),
+            'cuisines': request.form.get('cuisines'),
+            'rating': request.form.get('rating'),
             'max_price': float(request.form.get('max_price', 1000))
         }
 
-        # Basic validation
-        if not preferences['cuisines'] or not preferences['city']:
-            return render_template('error.html', message="Please provide both cuisines and city.")
-
         # Get recommendations
-        recommendations = get_recommendations(preferences)
+        recommendations = get_recommendations(user_prefs)
 
-        if recommendations.empty:
-            return render_template('results.html', 
-                                 results=None, 
-                                 preferences=preferences,
-                                 message="No restaurants match your criteria. Please try different preferences.")
+        # Convert to list of dicts for template
+        rec_list = recommendations[['Restaurant Name', 'Cuisines', 'Cost_single_person', 
+                                   'Aggregate rating', 'Address', 'similarity_score']].to_dict('records')
 
-        # Prepare results
-        results = recommendations[[
-            'Restaurant Name', 'Cuisines', 'Cost_single_person',
-            'Aggregate rating', 'City', 'Address', 'similarity_score'
-        ]].to_dict('records')
+        return render_template('index.html', 
+                             cities=top_cities, 
+                             cuisines=top_cuisines, 
+                             ratings=rating_options,
+                             recommendations=rec_list,
+                             form_data=user_prefs)
 
-        return render_template('results.html',
-                           results=results,
-                           preferences=preferences)
-
-    except ValueError:
-        return render_template('error.html', message="Invalid input. Please check your values.")
-    except Exception as e:
-        return render_template('error.html', message=f"An error occurred: {str(e)}")
+    return render_template('index.html', 
+                         cities=top_cities, 
+                         cuisines=top_cuisines, 
+                         ratings=rating_options,
+                         recommendations=None,
+                         form_data=None)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True)

@@ -10,7 +10,7 @@ app = Flask(__name__)
 
 # Load and preprocess data
 def load_data():
-    filepath = os.path.join('data', 'Dataset .csv')
+    filepath = os.path.join('data', 'dataset.csv')
     df = pd.read_csv(filepath)
 
     # Preprocessing (same as before)

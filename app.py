@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # Load and preprocess data
 def load_data():
-    df = pd.read_csv("Dataset.csv")
+    df = pd.read_csv("data/dataset.csv")
 
     # Data cleaning
     df.dropna(inplace=True)

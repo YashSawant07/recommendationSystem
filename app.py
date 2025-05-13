@@ -53,6 +53,15 @@ except:
 # Recommendation function
 def get_recommendations(user_preferences, top_n=5):
     try:
+        # Get user's city preference
+        user_city = user_preferences.get('city', '').strip()
+        
+        # First filter by city
+        city_df = df[df['City'].str.lower() == user_city.lower()].copy()
+        
+        if city_df.empty:
+            return pd.DataFrame()
+
         # Create dummy restaurant based on user preferences
         dummy_features = ' '.join([
             user_preferences.get('cuisines', ''),
@@ -63,16 +72,16 @@ def get_recommendations(user_preferences, top_n=5):
         # Transform dummy features using existing TF-IDF
         dummy_tfidf = tfidf.transform([dummy_features])
 
-        # Calculate similarity with all restaurants
-        sim_scores = linear_kernel(dummy_tfidf, tfidf.transform(df['features']))
+        # Calculate similarity with city-filtered restaurants
+        sim_scores = linear_kernel(dummy_tfidf, tfidf.transform(city_df['features']))
         sim_scores = sim_scores[0]  # Get the first (and only) row
 
         # Create a Series with similarity scores
-        sim_series = pd.Series(sim_scores, index=df.index)
+        sim_series = pd.Series(sim_scores, index=city_df.index)
 
         # Filter by max price if specified
         max_price = user_preferences.get('max_price', float('inf'))
-        filtered_df = df[df['Cost_single_person'] <= max_price].copy()
+        filtered_df = city_df[city_df['Cost_single_person'] <= max_price].copy()
 
         # Get similarity scores for filtered restaurants
         filtered_sim = sim_series[filtered_df.index]

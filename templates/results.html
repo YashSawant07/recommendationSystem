@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Recommendation Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Recommended Restaurants</h1>
+        <div class="preferences">
+            <h3>Your Preferences:</h3>
+            <p><strong>Cuisines:</strong> {{ preferences.cuisines }}</p>
+            <p><strong>City:</strong> {{ preferences.city }}</p>
+            <p><strong>Minimum Rating:</strong> {{ preferences.rating|title }}</p>
+            <p><strong>Max Price:</strong> ${{ "%.2f"|format(preferences.max_price) }}</p>
+        </div>
+
+        <div class="results">
+            {% if results %}
+                {% for restaurant in results %}
+                    <div class="restaurant-card">
+                        <h3>{{ restaurant['Restaurant Name'] }}</h3>
+                        <p><strong>Cuisines:</strong> {{ restaurant['Cuisines'] }}</p>
+                        <p><strong>Price per person:</strong> ${{ "%.2f"|format(restaurant['Cost_single_person']) }}</p>
+                        <p><strong>Rating:</strong> {{ restaurant['Aggregate rating'] }}/5</p>
+                        <p><strong>Address:</strong> {{ restaurant['Address'] }}, {{ restaurant['City'] }}</p>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-results">No restaurants match your criteria. Please try different preferences.</p>
+            {% endif %}
+        </div>
+
+        <a href="{{ url_for('index') }}" class="back-button">Try Again</a>
+    </div>
+</body>
+</html>

@@ -134,12 +134,37 @@ button:hover {
   text-decoration: none;
 }
 
-@media (max-width: 600px) {
-  .container {
-      padding: 15px;
-  }
+.cuisine-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
 
-  h1 {
-      font-size: 24px;
-  }
+.cuisine-item {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid #e1e5eb;
+    transition: transform 0.2s;
+}
+
+.cuisine-item:hover {
+    transform: translateY(-2px);
+    background-color: #e8f4fd;
+}
+
+@media (max-width: 600px) {
+    .container {
+        padding: 15px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+    
+    .cuisine-list {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
 }

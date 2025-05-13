@@ -88,6 +88,17 @@ def get_recommendations(user_preferences, top_n=5):
         return pd.DataFrame()
 
 # Routes
+@app.route('/cuisines')
+def cuisines():
+    try:
+        # Extract all cuisines and split them
+        all_cuisines = df['Cuisines'].str.split(',').explode()
+        # Clean and get top 50 unique cuisines
+        top_cuisines = all_cuisines.str.strip().value_counts().head(50).index.tolist()
+        return render_template('cuisines.html', cuisines=top_cuisines)
+    except Exception as e:
+        return render_template('error.html', message=f"Failed to load cuisines. Error: {str(e)}")
+
 @app.route('/')
 def index():
     try:

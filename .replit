@@ -31,3 +31,7 @@ args = "python3 app.py"
 localPort = 5000
 externalPort = 80
 exposeLocalhost = true
+
+[[ports]]
+localPort = 10000
+externalPort = 3000
